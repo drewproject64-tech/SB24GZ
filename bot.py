@@ -1,6 +1,8 @@
 import asyncio
+import html
 import logging
 import os
+from datetime import datetime, timezone
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -24,6 +26,12 @@ logging.basicConfig(
 logger = logging.getLogger("sb24gz_live")
 router = Router()
 
+# Telegram-native content. No external URLs are used anywhere in the user flow.
+LIVE_CONTENT = {
+    "live": "🔴 <b>Live Now</b>\n\nSB24GZ is ready for live updates. New content will appear here when published.",
+    "latest": "📣 <b>Latest Updates</b>\n\nNo new update is published yet. Check back here for the latest SB24GZ content.",
+}
+
 
 class LiveState(StatesGroup):
     waiting_for_update_text = State()
@@ -32,8 +40,10 @@ class LiveState(StatesGroup):
 def main_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🔴 Live Now", callback_data="live_now")],
-            [InlineKeyboardButton(text="📣 Latest Updates", callback_data="latest_updates")],
+            [
+                InlineKeyboardButton(text="🔴 Live Now", callback_data="live_now"),
+                InlineKeyboardButton(text="📣 Latest Updates", callback_data="latest_updates"),
+            ],
             [InlineKeyboardButton(text="📝 Submit Update", callback_data="submit_update")],
             [InlineKeyboardButton(text="ℹ️ Help", callback_data="help")],
         ]
@@ -57,39 +67,21 @@ def retry_menu() -> InlineKeyboardMarkup:
 
 WELCOME = (
     "<b>SB24GZ – ផ្សាយផ្ទាល់</b>\n\n"
-    "A focused Telegram-native live update bot.\n\n"
-    "🔴 <b>Live Now</b> — view the current live item.\n"
-    "📣 <b>Latest Updates</b> — view the most recent update.\n"
-    "📝 <b>Submit Update</b> — send a text update to the bot.\n\n"
+    "Live updates and recent content, directly inside Telegram.\n\n"
+    "🔴 <b>Live Now</b> — view the current live update.\n"
+    "📣 <b>Latest Updates</b> — read the latest published update.\n"
+    "📝 <b>Submit Update</b> — send text to the bot.\n\n"
     "Choose an option below."
 )
 
 HELP_TEXT = (
-    "<b>How to use SB24GZ</b>\n\n"
-    "🔴 <b>Live Now</b>\n"
-    "Shows the current live content available in the bot.\n\n"
-    "📣 <b>Latest Updates</b>\n"
-    "Shows the latest available update.\n\n"
-    "📝 <b>Submit Update</b>\n"
-    "Send a text update to the bot.\n\n"
-    "Use /start at any time to return to the main menu."
+    "<b>SB24GZ – ផ្សាយផ្ទាល់</b>\n\n"
+    "This bot provides live updates and recent content directly inside Telegram.\n\n"
+    "🔴 Live Now — view the current live content.\n"
+    "📣 Latest Updates — view the latest available content.\n"
+    "📝 Submit Update — send a text update to the bot.\n\n"
+    "No external website is required. Use /start to return to the main menu."
 )
-
-
-def current_live_text() -> str:
-    return (
-        "<b>🔴 Live Now</b>\n\n"
-        "No live item has been published yet.\n\n"
-        "Use <b>Submit Update</b> to send the next text update."
-    )
-
-
-def latest_update_text() -> str:
-    return (
-        "<b>📣 Latest Updates</b>\n\n"
-        "There are no published updates yet.\n\n"
-        "You can submit a text update from the main menu."
-    )
 
 
 @router.message(CommandStart())
@@ -107,37 +99,42 @@ async def help_handler(message: Message) -> None:
 async def main_menu_handler(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await callback.answer()
-    await callback.message.edit_text(WELCOME, reply_markup=main_menu())
+    if callback.message:
+        await callback.message.edit_text(WELCOME, reply_markup=main_menu())
 
 
 @router.callback_query(F.data == "help")
 async def help_callback(callback: CallbackQuery) -> None:
     await callback.answer()
-    await callback.message.edit_text(HELP_TEXT, reply_markup=back_menu())
+    if callback.message:
+        await callback.message.edit_text(HELP_TEXT, reply_markup=back_menu())
 
 
 @router.callback_query(F.data == "live_now")
 async def live_now_handler(callback: CallbackQuery) -> None:
     await callback.answer()
-    await callback.message.edit_text(current_live_text(), reply_markup=back_menu())
+    if callback.message:
+        await callback.message.edit_text(LIVE_CONTENT["live"], reply_markup=back_menu())
 
 
 @router.callback_query(F.data == "latest_updates")
 async def latest_updates_handler(callback: CallbackQuery) -> None:
     await callback.answer()
-    await callback.message.edit_text(latest_update_text(), reply_markup=back_menu())
+    if callback.message:
+        await callback.message.edit_text(LIVE_CONTENT["latest"], reply_markup=back_menu())
 
 
 @router.callback_query(F.data == "submit_update")
 async def submit_update_handler(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     await state.set_state(LiveState.waiting_for_update_text)
-    await callback.message.edit_text(
-        "<b>📝 Submit Update</b>\n\n"
-        "Send the text you want to submit.\n\n"
-        "You can cancel by sending /start.",
-        reply_markup=back_menu(),
-    )
+    if callback.message:
+        await callback.message.edit_text(
+            "<b>📝 Submit Update</b>\n\n"
+            "Send the text you want to submit.\n\n"
+            "Your submission stays inside Telegram. You can cancel with /start.",
+            reply_markup=back_menu(),
+        )
 
 
 @router.message(LiveState.waiting_for_update_text, F.text)
@@ -155,11 +152,15 @@ async def receive_update_text(message: Message, state: FSMContext) -> None:
         )
         return
 
+    # Echo the submitted text safely inside Telegram. No external destination.
+    safe_text = html.escape(text)
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     await state.clear()
     await message.answer(
         "<b>✅ Update received</b>\n\n"
         "Your text was received successfully inside Telegram.\n\n"
-        f"<blockquote>{text}</blockquote>",
+        f"<blockquote>{safe_text}</blockquote>\n"
+        f"<i>Received: {timestamp}</i>",
         reply_markup=main_menu(),
     )
 
