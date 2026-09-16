@@ -1,6 +1,6 @@
+import asyncio
 import logging
 import os
-from typing import Optional
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -22,12 +22,10 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 logger = logging.getLogger("sb24gz_live")
-
 router = Router()
 
 
 class LiveState(StatesGroup):
-    waiting_for_live_text = State()
     waiting_for_update_text = State()
 
 
@@ -44,16 +42,14 @@ def main_menu() -> InlineKeyboardMarkup:
 
 def back_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="↩️ Main Menu", callback_data="main_menu")]
-        ]
+        inline_keyboard=[[InlineKeyboardButton(text="↩️ Main Menu", callback_data="main_menu")]]
     )
 
 
-def retry_menu(action: str) -> InlineKeyboardMarkup:
+def retry_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 Try Again", callback_data=action)],
+            [InlineKeyboardButton(text="🔄 Try Again", callback_data="submit_update")],
             [InlineKeyboardButton(text="↩️ Main Menu", callback_data="main_menu")],
         ]
     )
@@ -64,14 +60,14 @@ WELCOME = (
     "A focused Telegram-native live update bot.\n\n"
     "🔴 <b>Live Now</b> — view the current live item.\n"
     "📣 <b>Latest Updates</b> — view the most recent update.\n"
-    "📝 <b>Submit Update</b> — send a text update for review.\n\n"
+    "📝 <b>Submit Update</b> — send a text update to the bot.\n\n"
     "Choose an option below."
 )
 
 HELP_TEXT = (
     "<b>How to use SB24GZ</b>\n\n"
     "🔴 <b>Live Now</b>\n"
-    "Shows the current live content stored by the bot.\n\n"
+    "Shows the current live content available in the bot.\n\n"
     "📣 <b>Latest Updates</b>\n"
     "Shows the latest available update.\n\n"
     "📝 <b>Submit Update</b>\n"
@@ -104,7 +100,7 @@ async def start_handler(message: Message, state: FSMContext) -> None:
 
 @router.message(Command("help"))
 async def help_handler(message: Message) -> None:
-    await message.answer(HELP_TEXT, reply_markup=back_menu())
+    await message.answer(HELP_TEXT, reply_markup=main_menu())
 
 
 @router.callback_query(F.data == "main_menu")
@@ -137,7 +133,8 @@ async def submit_update_handler(callback: CallbackQuery, state: FSMContext) -> N
     await callback.answer()
     await state.set_state(LiveState.waiting_for_update_text)
     await callback.message.edit_text(
-        "<b>📝 Submit Update</b>\n\nSend the text you want to submit.\n\n"
+        "<b>📝 Submit Update</b>\n\n"
+        "Send the text you want to submit.\n\n"
         "You can cancel by sending /start.",
         reply_markup=back_menu(),
     )
@@ -146,24 +143,22 @@ async def submit_update_handler(callback: CallbackQuery, state: FSMContext) -> N
 @router.message(LiveState.waiting_for_update_text, F.text)
 async def receive_update_text(message: Message, state: FSMContext) -> None:
     text = (message.text or "").strip()
+
     if not text:
-        await message.answer(
-            "Please send some text.",
-            reply_markup=retry_menu("submit_update"),
-        )
+        await message.answer("Please send some text.", reply_markup=retry_menu())
         return
 
     if len(text) > 3000:
         await message.answer(
             "That update is too long. Please keep it under 3,000 characters.",
-            reply_markup=retry_menu("submit_update"),
+            reply_markup=retry_menu(),
         )
         return
 
     await state.clear()
     await message.answer(
         "<b>✅ Update received</b>\n\n"
-        "Your text was accepted for processing inside the bot.\n\n"
+        "Your text was received successfully inside Telegram.\n\n"
         f"<blockquote>{text}</blockquote>",
         reply_markup=main_menu(),
     )
@@ -173,17 +168,15 @@ async def receive_update_text(message: Message, state: FSMContext) -> None:
 async def reject_non_text_update(message: Message) -> None:
     await message.answer(
         "Please send a text message for the update.",
-        reply_markup=retry_menu("submit_update"),
+        reply_markup=retry_menu(),
     )
 
 
-@router.callback_query(F.data.in_({"live_now", "latest_updates", "submit_update", "help"}))
-async def guard_callback(callback: CallbackQuery) -> None:
-    await callback.answer()
-
-
 async def main() -> None:
-    bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot = Bot(
+        token=BOT_TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
     dp = Dispatcher()
     dp.include_router(router)
 
@@ -197,6 +190,4 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    import asyncio
-
     asyncio.run(main())
